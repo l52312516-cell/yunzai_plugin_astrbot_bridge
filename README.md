@@ -7,7 +7,7 @@ Yunzai 侧联动插件。它在 Yunzai 进程中监听 HTTP JSON RPC，把 AstrB
 - 作者：[l52312516-cell](https://github.com/l52312516-cell)
 - 仓库：[l52312516-cell/yunzai_plugin_astrbot_bridge](https://github.com/l52312516-cell/yunzai_plugin_astrbot_bridge)
 - 配套 AstrBot 插件：[l52312516-cell/astrbot_plugin_yunzai_bridge](https://github.com/l52312516-cell/astrbot_plugin_yunzai_bridge)
-- 当前版本：`1.3.7`
+- 当前版本：`1.3.8`
 
 ## 兼容性
 
@@ -423,7 +423,9 @@ TRSS 使用 `Bot.prepareEvent(event)`；Miao 则补齐 `bot`、`group`、`member
 
 - 文本消息段。
 - 图片 URL、文件路径或二进制 `Buffer`；二进制会转换成临时媒体引用。
-- JSON、转发或未知消息段的安全序列化结果。
+- 音乐卡片、QQ JSON 卡片和分享卡片。
+- 语音、视频和文件 URL；二进制媒体会转换成带鉴权的临时媒体引用。
+- 其他未知消息段的安全序列化结果。
 
 ## 回复发送策略
 
@@ -497,11 +499,15 @@ AstrBot 选择 `astrbot_forward` 时进入捕获模式：Yunzai 不直接发送�
 
 ### 命令显示成功但没有真实消息
 
-确认两端都是 `1.3.7`，并检查 AstrBot 是否选择 Yunzai 原生模式。原生模式必须在 Yunzai 锅巴填写实际机器人 QQ 作为默认 Bot ID，然后完整重启 Yunzai。查看 `effective_target` 和 `reply_delivery.status`；原生失败时再查看 AstrBot 的 `delivery_error`。
+确认两端都是 `1.3.8`，并检查 AstrBot 是否选择 Yunzai 原生模式。原生模式必须在 Yunzai 锅巴填写实际机器人 QQ 作为默认 Bot ID，然后完整重启 Yunzai。查看 `effective_target` 和 `reply_delivery.status`；原生失败时再查看 AstrBot 的 `delivery_error`。
 
 ### AstrBot Tool Result 出现 PNG 二进制乱码
 
-旧版代码把图片 `Buffer` 当作 URL 转成了字符串，日志中会出现 `�PNG`、`IHDR` 和 `IDAT`。升级两端到 `1.3.7` 后，默认沿用 `v1.2.1` 的 `nativeReply` 直接发送；AstrBot 转发模式只返回临时媒体摘要。
+旧版代码把图片 `Buffer` 当作 URL 转成了字符串，日志中会出现 `�PNG`、`IHDR` 和 `IDAT`。升级两端到 `1.3.8` 后，默认沿用 `v1.2.1` 的 `nativeReply` 直接发送；AstrBot 转发模式只返回临时媒体摘要。
+
+### 点歌插件返回卡片但 AstrBot 没有发送
+
+升级双端到 `1.3.8`。新版会把 OneBot `music`、`json`、`share`、`record/audio`、`video` 和 `file` 消息段规范化给 AstrBot，转发模式不再只处理图片。最终结果查看 `media_delivery.status`，不要根据命令 `success` 推测媒体已经送达。
 
 ### 图片发送到错误目标
 

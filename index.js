@@ -9,7 +9,7 @@ const PLUGIN_DIR = path.resolve(process.cwd(), "plugins/yunzai_plugin_astrbot_br
 const CONFIG_PATH = path.join(PLUGIN_DIR, "config.json")
 const SHARED_KEY = Symbol.for("astrbot.yunzai.bridge.server")
 const MEDIA_CACHE_KEY = Symbol.for("astrbot.yunzai.bridge.media")
-const VERSION = "1.3.7"
+const VERSION = "1.3.8"
 const MAX_COMMAND_LENGTH = 1000
 const MEDIA_TTL_MS = 5 * 60 * 1000
 const MEDIA_MAX_ITEMS = 20
@@ -86,11 +86,18 @@ function binaryBuffer(value) {
   return null
 }
 
-function imageMimeType(buffer) {
+function mediaMimeType(buffer, kind = "file") {
   if (buffer.length >= 8 && buffer.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return "image/png"
   if (buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) return "image/jpeg"
   if (buffer.length >= 6 && ["GIF87a", "GIF89a"].includes(buffer.subarray(0, 6).toString("ascii"))) return "image/gif"
   if (buffer.length >= 12 && buffer.subarray(0, 4).toString("ascii") === "RIFF" && buffer.subarray(8, 12).toString("ascii") === "WEBP") return "image/webp"
+  if (buffer.length >= 12 && buffer.subarray(0, 4).toString("ascii") === "RIFF" && buffer.subarray(8, 12).toString("ascii") === "WAVE") return "audio/wav"
+  if (buffer.length >= 4 && buffer.subarray(0, 4).toString("ascii") === "OggS") return "audio/ogg"
+  if (buffer.length >= 4 && buffer.subarray(0, 4).toString("ascii") === "fLaC") return "audio/flac"
+  if (buffer.length >= 3 && buffer.subarray(0, 3).toString("ascii") === "ID3") return "audio/mpeg"
+  if (buffer.length >= 2 && buffer[0] === 0xff && (buffer[1] & 0xe0) === 0xe0) return "audio/mpeg"
+  if (buffer.length >= 12 && buffer.subarray(4, 8).toString("ascii") === "ftyp") return kind === "audio" || kind === "record" ? "audio/mp4" : "video/mp4"
+  if (buffer.length >= 4 && buffer[0] === 0x1a && buffer[1] === 0x45 && buffer[2] === 0xdf && buffer[3] === 0xa3) return kind === "audio" || kind === "record" ? "audio/webm" : "video/webm"
   return "application/octet-stream"
 }
 
@@ -114,15 +121,15 @@ function pruneMediaCache(now = Date.now()) {
   return { cache, totalBytes }
 }
 
-function cacheImage(buffer) {
-  const mimeType = imageMimeType(buffer)
+function cacheMedia(buffer, kind = "file") {
+  const mimeType = mediaMimeType(buffer, kind)
   const summary = {
     mime_type: mimeType,
     size_bytes: buffer.length,
     sha256: crypto.createHash("sha256").update(buffer).digest("hex"),
   }
   if (buffer.length > MEDIA_MAX_ITEM_BYTES) {
-    return { ...summary, url: "", binary_omitted: true, reason: "image_too_large" }
+    return { ...summary, url: "", binary_omitted: true, reason: `${kind}_too_large` }
   }
   const state = pruneMediaCache()
   while (state.cache.size >= MEDIA_MAX_ITEMS || state.totalBytes + buffer.length > MEDIA_MAX_TOTAL_BYTES) {
@@ -145,13 +152,15 @@ function cacheImage(buffer) {
   }
 }
 
-function cachedImageFromString(value) {
-  const dataUrl = value.match(/^data:(image\/[a-z0-9.+-]+);base64,([a-z0-9+/=\s]+)$/i)
+function cachedMediaFromString(value, kind = "file") {
+  const dataUrl = value.match(/^data:([a-z0-9.+-]+\/[a-z0-9.+-]+);base64,([a-z0-9+/=\s]+)$/i)
   if (dataUrl) {
     try {
-      return cacheImage(Buffer.from(dataUrl[2].replace(/\s+/g, ""), "base64"))
+      const cached = cacheMedia(Buffer.from(dataUrl[2].replace(/\s+/g, ""), "base64"), kind)
+      cached.mime_type = dataUrl[1].toLowerCase()
+      return cached
     } catch {
-      return { url: "", binary_omitted: true, reason: "invalid_image_data_url" }
+      return { url: "", binary_omitted: true, reason: `invalid_${kind}_data_url` }
     }
   }
   const controlCharacters = [...value].filter(character => {
@@ -431,19 +440,58 @@ export function normalizeMessage(message) {
     .map(part => {
       if (typeof part === "string") return { type: "text", text: part }
       if (!part || typeof part !== "object") return null
-      if (part.type === "text") return { type: "text", text: String(part.text || part.data || "") }
-      if (part.type === "image") {
+      const type = String(part.type || "unknown").toLowerCase()
+      const data = part.data && typeof part.data === "object" && !binaryBuffer(part.data) ? part.data : {}
+      if (type === "text") return { type: "text", text: String(part.text ?? data.text ?? part.data ?? "") }
+      if (type === "image") {
         const candidates = [part.url, part.file, part.data?.url, part.data?.file, part.data]
         for (const candidate of candidates) {
           const buffer = binaryBuffer(candidate)
-          if (buffer) return { type: "image", ...cacheImage(buffer) }
+          if (buffer) return { type: "image", ...cacheMedia(buffer, "image") }
           if (typeof candidate === "string" && candidate) {
-            return { type: "image", ...cachedImageFromString(candidate) }
+            return { type: "image", ...cachedMediaFromString(candidate, "image") }
           }
         }
         return { type: "image", url: "", binary_omitted: true, reason: "unsupported_image_value" }
       }
-      return { type: String(part.type || "unknown"), data: safeJson(part) }
+      if (["record", "audio", "video", "file"].includes(type)) {
+        const kind = type === "audio" ? "record" : type
+        const candidates = [part.url, part.file, data.url, data.file, part.data]
+        for (const candidate of candidates) {
+          const buffer = binaryBuffer(candidate)
+          if (buffer) return { type: kind, name: String(part.name || data.name || ""), ...cacheMedia(buffer, kind) }
+          if (typeof candidate === "string" && candidate) {
+            return { type: kind, name: String(part.name || data.name || ""), ...cachedMediaFromString(candidate, kind) }
+          }
+        }
+        return { type: kind, name: String(part.name || data.name || ""), url: "", binary_omitted: true, reason: `unsupported_${kind}_value` }
+      }
+      if (type === "music") {
+        return {
+          type: "music",
+          music_type: String(part.music_type || part._type || data.type || data._type || "custom"),
+          id: part.id ?? data.id ?? 0,
+          url: String(part.url || data.url || ""),
+          audio: String(part.audio || data.audio || ""),
+          title: String(part.title || data.title || ""),
+          content: String(part.content || data.content || ""),
+          image: String(part.image || data.image || ""),
+        }
+      }
+      if (type === "json") {
+        const jsonData = Object.hasOwn(data, "data") ? data.data : part.data
+        return { type: "json", data: safeJson(jsonData) }
+      }
+      if (type === "share") {
+        return {
+          type: "share",
+          url: String(part.url || data.url || ""),
+          title: String(part.title || data.title || ""),
+          content: String(part.content || data.content || ""),
+          image: String(part.image || data.image || ""),
+        }
+      }
+      return { type, data: safeJson(part) }
     })
     .filter(Boolean)
 }
