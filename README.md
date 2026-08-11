@@ -7,7 +7,7 @@ Yunzai 侧联动插件。它在 Yunzai 进程中监听 HTTP JSON RPC，把 AstrB
 - 作者：[l52312516-cell](https://github.com/l52312516-cell)
 - 仓库：[l52312516-cell/yunzai_plugin_astrbot_bridge](https://github.com/l52312516-cell/yunzai_plugin_astrbot_bridge)
 - 配套 AstrBot 插件：[l52312516-cell/astrbot_plugin_yunzai_bridge](https://github.com/l52312516-cell/astrbot_plugin_yunzai_bridge)
-- 当前版本：`1.3.1`
+- 当前版本：`1.3.2`
 
 ## 兼容性
 
@@ -466,7 +466,7 @@ TRSS 使用 `Bot.prepareEvent(event)`；Miao 则补齐 `bot`、`group`、`member
 
 ### AstrBot Tool Result 出现 PNG 二进制乱码
 
-旧版代码把图片 `Buffer` 当作 URL 转成了字符串，日志中会出现 `�PNG`、`IHDR` 和 `IDAT`。升级到 `1.3.1` 后，二进制图片只返回临时媒体 URL 和摘要信息。
+旧版代码把图片 `Buffer` 当作 URL 转成了字符串，日志中会出现 `�PNG`、`IHDR` 和 `IDAT`。升级两端到 `1.3.2` 后，二进制图片只返回临时媒体 URL 和摘要信息，AstrBot 端会下载并通过原生图片消息发送。
 
 ## 开发测试
 
