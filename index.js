@@ -9,7 +9,7 @@ const PLUGIN_DIR = path.resolve(process.cwd(), "plugins/yunzai_plugin_astrbot_br
 const CONFIG_PATH = path.join(PLUGIN_DIR, "config.json")
 const SHARED_KEY = Symbol.for("astrbot.yunzai.bridge.server")
 const MEDIA_CACHE_KEY = Symbol.for("astrbot.yunzai.bridge.media")
-const VERSION = "1.3.4"
+const VERSION = "1.3.5"
 const MAX_COMMAND_LENGTH = 1000
 const NATIVE_REPLY_TIMEOUT_MS = 30 * 1000
 const MEDIA_TTL_MS = 5 * 60 * 1000
@@ -658,6 +658,12 @@ async function runCommand(payload, config, result, started) {
       return result
     }
     const event = buildEvent(payload, config)
+    result.effective_target = {
+      bot_id: event.self_id,
+      message_type: event.message_type,
+      group_id: event.group_id || "",
+      user_id: event.user_id,
+    }
     prepareEventCompat(event)
     // Session role is decided above from Yunzai's scoped master config.
     // Do not let adapter preparation promote an ordinary bridge event.

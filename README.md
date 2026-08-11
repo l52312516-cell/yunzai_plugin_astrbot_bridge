@@ -7,7 +7,7 @@ Yunzai 侧联动插件。它在 Yunzai 进程中监听 HTTP JSON RPC，把 AstrB
 - 作者：[l52312516-cell](https://github.com/l52312516-cell)
 - 仓库：[l52312516-cell/yunzai_plugin_astrbot_bridge](https://github.com/l52312516-cell/yunzai_plugin_astrbot_bridge)
 - 配套 AstrBot 插件：[l52312516-cell/astrbot_plugin_yunzai_bridge](https://github.com/l52312516-cell/astrbot_plugin_yunzai_bridge)
-- 当前版本：`1.3.4`
+- 当前版本：`1.3.5`
 
 ## 兼容性
 
@@ -433,6 +433,19 @@ AstrBot 选择 `astrbot_forward` 时进入捕获模式：Yunzai 不直接发送�
 
 每个捕获消息还带有 `native_delivery` 和可选 `native_delivery_error`。命令 `success:true` 不再被解释为消息一定发送成功。
 
+响应还会返回 `effective_target`，显示 Yunzai 实际构造的目标：
+
+```json
+{
+  "effective_target": {
+    "bot_id": "10001",
+    "message_type": "group",
+    "group_id": "20001",
+    "user_id": "30001"
+  }
+}
+```
+
 重要：`allow_send_reply` 只控制回复发送。命令自身的数据库写入、配置修改、更新或重启副作用不会因此取消。
 
 ## 安全边界
@@ -478,7 +491,11 @@ AstrBot 选择 `astrbot_forward` 时进入捕获模式：Yunzai 不直接发送�
 
 ### AstrBot Tool Result 出现 PNG 二进制乱码
 
-旧版代码把图片 `Buffer` 当作 URL 转成了字符串，日志中会出现 `�PNG`、`IHDR` 和 `IDAT`。升级两端到 `1.3.4` 后，默认沿用初版 `nativeReply` 直接发送；AstrBot 转发模式只返回临时媒体摘要。
+旧版代码把图片 `Buffer` 当作 URL 转成了字符串，日志中会出现 `�PNG`、`IHDR` 和 `IDAT`。升级两端到 `1.3.5` 后，默认沿用初版 `nativeReply` 直接发送；AstrBot 转发模式只返回临时媒体摘要。
+
+### 图片发送到错误目标
+
+查看 `effective_target`。群聊应为当前群号，私聊的 `group_id` 应为空。如果目标正确但实际投递错误，检查 `default_bot_id` 是否选中了预期 Yunzai 账号，以及该账号适配器的 `pickGroup/pickFriend` 路由。
 
 ## 开发测试
 
