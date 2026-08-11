@@ -100,12 +100,6 @@ export function supportGuoba() {
           component: "Input",
         },
         {
-          field: "allow_send_reply",
-          label: "Yunzai 原生发送回复",
-          bottomHelpMessage: "开启后沿用初版 nativeReply 机制，Yunzai 生成回复时立即发送，速度最快。",
-          component: "Switch",
-        },
-        {
           field: "discover_plugins",
           label: "自动发现插件",
           bottomHelpMessage: "只展示已加载规则；执行时仍按主人/普通用户权限动态判定。",
@@ -142,7 +136,7 @@ export function supportGuoba() {
             if (field === "game_queries_json") next.game_queries = parseJsonArray(value, "游戏查询模板")
             else if (["host", "token", "default_bot_id"].includes(field)) next[field] = String(value || "").trim()
             else if (["port", "max_body_bytes"].includes(field)) next[field] = Number(value)
-            else if (["allow_send_reply", "discover_plugins"].includes(field)) next[field] = Boolean(value)
+            else if (field === "discover_plugins") next[field] = Boolean(value)
           }
           if (!next.host) throw new Error("监听地址不能为空")
           if (!Number.isInteger(next.port) || next.port < 1 || next.port > 65535) {

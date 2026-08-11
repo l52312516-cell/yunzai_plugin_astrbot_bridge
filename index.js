@@ -9,9 +9,8 @@ const PLUGIN_DIR = path.resolve(process.cwd(), "plugins/yunzai_plugin_astrbot_br
 const CONFIG_PATH = path.join(PLUGIN_DIR, "config.json")
 const SHARED_KEY = Symbol.for("astrbot.yunzai.bridge.server")
 const MEDIA_CACHE_KEY = Symbol.for("astrbot.yunzai.bridge.media")
-const VERSION = "1.3.5"
+const VERSION = "1.3.6"
 const MAX_COMMAND_LENGTH = 1000
-const NATIVE_REPLY_TIMEOUT_MS = 30 * 1000
 const MEDIA_TTL_MS = 5 * 60 * 1000
 const MEDIA_MAX_ITEMS = 20
 const MEDIA_MAX_ITEM_BYTES = 20 * 1024 * 1024
@@ -61,7 +60,6 @@ export const DEFAULT_CONFIG = {
   port: 1145,
   token: "",
   default_bot_id: "",
-  allow_send_reply: true,
   discover_plugins: true,
   max_body_bytes: 1024 * 1024,
   game_queries: DEFAULT_GAME_QUERIES,
@@ -641,12 +639,6 @@ export async function executeGameQuery(payload, config) {
 }
 
 async function runCommand(payload, config, result, started) {
-  if (payload.send_reply && !config.allow_send_reply) {
-    result.error = "Yunzai 配置未允许实际发送消息"
-    result.duration_ms = Date.now() - started
-    return result
-  }
-
   try {
     const access = authorizeCommand(payload, config)
     result.role = access.role
@@ -670,55 +662,60 @@ async function runCommand(payload, config, result, started) {
     event.isMaster = access.role === "master"
     const nativeReply = event.reply
     const deliveryRecords = []
-    event.reply = (message = "", quote = false, data = {}) => {
+    // Preserve v1.2.1 semantics: plugin handlers await the real Yunzai reply
+    // directly. Do not defer nativeReply into a tracking Promise or wait for it
+    // a second time after PluginsLoader.deal().
+    event.reply = async (message = "", quote = false, data = {}) => {
       const capturedMessages = normalizeMessage(message)
       result.messages.push(...capturedMessages)
-      let delivery
+      const record = { capturedMessages, status: "pending", error: "" }
+      deliveryRecords.push(record)
       if (!payload.send_reply) {
-        delivery = Promise.resolve({ status: "capture_only", value: { message_id: `astrbot-capture-${crypto.randomUUID()}` } })
-      } else if (typeof nativeReply !== "function") {
-        delivery = Promise.resolve({ status: "failed", error: "native_reply_unavailable", value: false })
-      } else {
-        let timeoutId
-        const timeout = new Promise(resolve => {
-          timeoutId = setTimeout(() => resolve({ status: "failed", error: "native_reply_timeout", value: false }), NATIVE_REPLY_TIMEOUT_MS)
-        })
-        const nativeDelivery = Promise.resolve()
-          .then(() => nativeReply(message, quote, data))
-          .then(value => value === false
-            ? { status: "failed", error: "native_reply_returned_false", value }
-            : { status: "sent", value })
-          .catch(error => ({ status: "failed", error: error?.message || String(error), value: false }))
-        delivery = Promise.race([nativeDelivery, timeout]).finally(() => clearTimeout(timeoutId))
+        record.status = "capture_only"
+        return { message_id: `astrbot-capture-${crypto.randomUUID()}` }
       }
-      deliveryRecords.push({ capturedMessages, delivery })
-      return delivery.then(outcome => outcome.value)
+      if (typeof nativeReply !== "function") {
+        record.status = "failed"
+        record.error = "native_reply_unavailable"
+        return false
+      }
+      try {
+        const value = await nativeReply(message, quote, data)
+        record.status = value === false ? "failed" : "sent"
+        if (value === false) record.error = "native_reply_returned_false"
+        return value
+      } catch (error) {
+        record.status = "failed"
+        record.error = error?.message || String(error)
+        return false
+      }
     }
     const handlerResult = await PluginsLoader.deal(event)
-    const deliveryOutcomes = await Promise.all(deliveryRecords.map(record => record.delivery))
-    for (const [index, record] of deliveryRecords.entries()) {
+    for (const record of deliveryRecords) {
       for (const message of record.capturedMessages) {
-        message.native_delivery = deliveryOutcomes[index].status
-        if (deliveryOutcomes[index].error) message.native_delivery_error = deliveryOutcomes[index].error
+        message.native_delivery = record.status
+        if (record.error) message.native_delivery_error = record.error
       }
     }
-    const succeeded = deliveryOutcomes.filter(outcome => outcome.status === "sent").length
-    const failed = deliveryOutcomes.filter(outcome => outcome.status === "failed").length
+    const succeeded = deliveryRecords.filter(record => record.status === "sent").length
+    const failed = deliveryRecords.filter(record => record.status === "failed").length
+    const pending = deliveryRecords.filter(record => record.status === "pending").length
     result.reply_delivery = {
       requested: Boolean(payload.send_reply),
       status: !payload.send_reply
         ? "capture_only"
-        : !deliveryOutcomes.length
+        : !deliveryRecords.length
           ? "no_reply"
           : failed === 0
-            ? "sent"
+            ? pending > 0 ? "pending" : "sent"
             : succeeded > 0
               ? "partial"
               : "failed",
-      attempts: payload.send_reply ? deliveryOutcomes.length : 0,
+      attempts: payload.send_reply ? deliveryRecords.length : 0,
       succeeded,
       failed,
-      errors: [...new Set(deliveryOutcomes.map(outcome => outcome.error).filter(Boolean))],
+      pending,
+      errors: [...new Set(deliveryRecords.map(record => record.error).filter(Boolean))],
     }
     if (failed) result.warning = "命令已执行，但部分或全部 Yunzai 回复发送失败"
     if (handlerResult !== undefined && handlerResult !== true) {
@@ -759,8 +756,7 @@ export function capabilities(config) {
       unknown_command: "deny",
       rate_limit: "disabled",
     },
-    allow_send_reply: Boolean(config.allow_send_reply),
-    send_policy: "native_reply_by_default",
+    send_policy: "controlled_by_astrbot_reply_delivery_mode",
   }
 }
 
@@ -789,7 +785,7 @@ export async function handleRequest(req, res, config) {
       version: VERSION,
       host: config.host,
       port: config.port,
-      send_policy: "native_reply_by_default",
+      send_policy: "controlled_by_astrbot_reply_delivery_mode",
     })
   }
 
