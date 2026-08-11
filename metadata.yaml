@@ -1,0 +1,10 @@
+name: astrbot_plugin_yunzai_bridge
+display_name: AstrBot Yunzai 联动
+short_description: 让 AstrBot Agent 调用远程 Yunzai 白名单命令和游戏查询模板
+description: |
+  通过带 Token 鉴权的 HTTP JSON RPC 连接远程 Yunzai。
+  Agent 可以检查连接、查询能力、执行白名单命令，并通过固定 API 风格调用任意已注册的 Yunzai 游戏查询模板。
+version: 1.2.1
+author: Codex
+repo: ""
+astrbot_version: ">=4.0,<5"

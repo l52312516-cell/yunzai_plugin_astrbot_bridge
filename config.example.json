@@ -1,0 +1,231 @@
+{
+  "host": "127.0.0.1",
+  "port": 1145,
+  "token": "请替换为长度足够的随机字符串",
+  "default_bot_id": "",
+  "allow_send_reply": false,
+  "discover_plugins": true,
+  "max_body_bytes": 1048576,
+  "game_queries": [
+    {
+      "game": "bh2",
+      "action": "help",
+      "command": "#BH2帮助",
+      "description": "崩坏学园2帮助"
+    },
+    {
+      "game": "bh2",
+      "action": "status",
+      "command": "#BH2状态",
+      "description": "崩坏学园2插件状态"
+    },
+    {
+      "game": "bh2",
+      "action": "account",
+      "command": "#BH2账号 {uid}",
+      "description": "崩坏学园2账号信息"
+    },
+    {
+      "game": "bh2",
+      "action": "login_days",
+      "command": "#BH2登录天数 {uid}",
+      "description": "崩坏学园2登录天数"
+    },
+    {
+      "game": "bh2",
+      "action": "showcase",
+      "command": "#BH2看板 {uid}",
+      "description": "崩坏学园2看板"
+    },
+    {
+      "game": "bh2",
+      "action": "catalog",
+      "command": "#BH2图鉴 {keyword}",
+      "description": "崩坏学园2图鉴搜索"
+    },
+    {
+      "game": "bh2",
+      "action": "detail",
+      "command": "#BH2图鉴详情 {keyword}",
+      "description": "崩坏学园2图鉴详情"
+    },
+    {
+      "game": "bh3",
+      "action": "help",
+      "command": "#崩坏3帮助文本",
+      "description": "崩坏3帮助文本"
+    },
+    {
+      "game": "bh3",
+      "action": "panel",
+      "command": "#崩坏3面板 {uid}",
+      "description": "崩坏3面板"
+    },
+    {
+      "game": "bh3",
+      "action": "note",
+      "command": "#崩坏3便笺 {uid}",
+      "description": "崩坏3实时便笺"
+    },
+    {
+      "game": "bh3",
+      "action": "characters",
+      "command": "#崩坏3角色 {uid} {keyword}",
+      "description": "崩坏3角色列表或角色面板"
+    },
+    {
+      "game": "bh3",
+      "action": "abyss",
+      "command": "#崩坏3深渊 {uid}",
+      "description": "崩坏3深渊"
+    },
+    {
+      "game": "bh3",
+      "action": "battlefield",
+      "command": "#崩坏3战场 {uid}",
+      "description": "崩坏3记忆战场"
+    },
+    {
+      "game": "bh3",
+      "action": "elysian_realm",
+      "command": "#崩坏3逐光 {uid}",
+      "description": "崩坏3逐光"
+    },
+    {
+      "game": "bh3",
+      "action": "wiki",
+      "command": "#崩坏3图鉴 {keyword}",
+      "description": "崩坏3图鉴搜索"
+    },
+    {
+      "game": "bh3",
+      "action": "wiki_detail",
+      "command": "#崩坏3图鉴详情 {keyword}",
+      "description": "崩坏3图鉴详情"
+    },
+    {
+      "game": "bh3",
+      "action": "art",
+      "command": "#崩坏3角色图 {keyword}",
+      "description": "崩坏3角色图"
+    },
+    {
+      "game": "bh3",
+      "action": "damage",
+      "command": "#崩坏3伤害 {keyword} {args}",
+      "description": "崩坏3伤害估算"
+    },
+    {
+      "game": "genshin",
+      "aliases": ["gs", "原神"],
+      "action": "panel",
+      "command": "#面板{uid}",
+      "description": "原神角色面板（按实际安装插件命令调整）"
+    },
+    {
+      "game": "genshin",
+      "aliases": ["gs", "原神"],
+      "action": "abyss",
+      "command": "#深渊",
+      "description": "原神深渊数据"
+    },
+    {
+      "game": "genshin",
+      "aliases": ["gs", "原神"],
+      "action": "note",
+      "command": "#体力",
+      "description": "原神实时便笺"
+    },
+    {
+      "game": "zzz",
+      "aliases": ["绝区零"],
+      "action": "panel",
+      "command": "#绝区零面板{uid}",
+      "description": "绝区零角色面板（按实际安装插件命令调整）"
+    },
+    {
+      "game": "wuthering",
+      "aliases": ["wuwa", "鸣潮"],
+      "action": "help",
+      "command": "#鸣潮帮助",
+      "description": "第三方鸣潮插件示例，按实际命令调整"
+    },
+    {
+      "game": "starrail",
+      "aliases": ["sr", "星铁"],
+      "action": "help",
+      "command": "#星铁帮助",
+      "description": "星铁帮助"
+    },
+    {
+      "game": "starrail",
+      "aliases": ["sr", "星铁"],
+      "action": "panel",
+      "command": "#星铁{keyword}面板",
+      "description": "星铁角色面板"
+    },
+    {
+      "game": "starrail",
+      "aliases": ["sr", "星铁"],
+      "action": "note",
+      "command": "#星铁体力",
+      "description": "星铁体力"
+    },
+    {
+      "game": "starrail",
+      "aliases": ["sr", "星铁"],
+      "action": "abyss",
+      "command": "#星铁深渊",
+      "description": "星铁深渊"
+    },
+    {
+      "game": "starrail",
+      "aliases": ["sr", "星铁"],
+      "action": "forgotten_hall",
+      "command": "#星铁忘却",
+      "description": "星铁忘却之庭"
+    },
+    {
+      "game": "starrail",
+      "aliases": ["sr", "星铁"],
+      "action": "fiction",
+      "command": "#星铁虚构",
+      "description": "星铁虚构叙事"
+    },
+    {
+      "game": "starrail",
+      "aliases": ["sr", "星铁"],
+      "action": "apocalyptic_shadow",
+      "command": "#星铁末日",
+      "description": "星铁末日幻影"
+    },
+    {
+      "game": "starrail",
+      "aliases": ["sr", "星铁"],
+      "action": "rogue",
+      "command": "#星铁模拟宇宙",
+      "description": "星铁模拟宇宙"
+    },
+    {
+      "game": "starrail",
+      "aliases": ["sr", "星铁"],
+      "action": "gacha",
+      "command": "#星铁抽卡记录",
+      "description": "星铁抽卡记录"
+    },
+    {
+      "game": "starrail",
+      "aliases": ["sr", "星铁"],
+      "action": "month",
+      "command": "#星铁月历",
+      "description": "星铁月收入"
+    },
+    {
+      "game": "starrail",
+      "aliases": ["sr", "星铁"],
+      "action": "strategy",
+      "command": "#星铁{keyword}攻略",
+      "description": "星铁攻略"
+    }
+  ]
+}
