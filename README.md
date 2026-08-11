@@ -7,7 +7,7 @@ Yunzai 侧联动插件。它在 Yunzai 进程中监听 HTTP JSON RPC，把 AstrB
 - 作者：[l52312516-cell](https://github.com/l52312516-cell)
 - 仓库：[l52312516-cell/yunzai_plugin_astrbot_bridge](https://github.com/l52312516-cell/yunzai_plugin_astrbot_bridge)
 - 配套 AstrBot 插件：[l52312516-cell/astrbot_plugin_yunzai_bridge](https://github.com/l52312516-cell/astrbot_plugin_yunzai_bridge)
-- 当前版本：`1.3.3`
+- 当前版本：`1.3.4`
 
 ## 兼容性
 
@@ -419,9 +419,19 @@ TRSS 使用 `Bot.prepareEvent(event)`；Miao 则补齐 `bot`、`group`、`member
 
 `allow_send_reply=true` 是默认快速模式。插件在 `event.reply` 发生时调用原生群聊或好友发送函数，不等待 RPC 图片回传和二次上传。
 
-两端都打开 `allow_send_reply` 后，Agent 工具默认传入 `send_reply=true`。旧 `config.json` 中已有的 `false` 不会自动覆盖，需要在锅巴中手动打开。
+AstrBot 选择 `yunzai_native` 模式且本端开启 `allow_send_reply` 后，桥接会传入 `send_reply=true`。旧 `config.json` 中已有的 `false` 不会自动覆盖，需要在锅巴中手动打开。
 
-设置 `send_reply=false` 时进入捕获模式：Yunzai 不直接发送，图片由 AstrBot 的 `deliver_captured_images` 后备机制转发。
+AstrBot 选择 `astrbot_forward` 时进入捕获模式：Yunzai 不直接发送，图片由 AstrBot 后备机制转发。选择 `capture_only` 时不实际发送。
+
+每次命令响应都会返回独立发送状态：
+
+- `reply_delivery.status=sent`：全部原生回复已发送。
+- `failed`：全部发送失败。
+- `partial`：部分成功、部分失败。
+- `no_reply`：命令没有调用 `event.reply`。
+- `capture_only`：按配置只捕获。
+
+每个捕获消息还带有 `native_delivery` 和可选 `native_delivery_error`。命令 `success:true` 不再被解释为消息一定发送成功。
 
 重要：`allow_send_reply` 只控制回复发送。命令自身的数据库写入、配置修改、更新或重启副作用不会因此取消。
 
@@ -464,11 +474,11 @@ TRSS 使用 `Bot.prepareEvent(event)`；Miao 则补齐 `bot`、`group`、`member
 
 ### 命令显示成功但没有真实消息
 
-检查两端 `allow_send_reply` 是否为 `true`。如果使用捕获模式，则检查 AstrBot 的 `deliver_captured_images` 和 Tool Result 中的 `delivery_error`。
+检查 AstrBot 是否选择 Yunzai 原生模式、本端 `allow_send_reply` 是否为 `true`，并查看 `reply_delivery.status`。原生失败时再查看 AstrBot 的 `delivery_error`。
 
 ### AstrBot Tool Result 出现 PNG 二进制乱码
 
-旧版代码把图片 `Buffer` 当作 URL 转成了字符串，日志中会出现 `�PNG`、`IHDR` 和 `IDAT`。升级两端到 `1.3.3` 后，默认沿用初版 `nativeReply` 直接发送；捕获模式只返回临时媒体摘要并由 AstrBot 转发。
+旧版代码把图片 `Buffer` 当作 URL 转成了字符串，日志中会出现 `�PNG`、`IHDR` 和 `IDAT`。升级两端到 `1.3.4` 后，默认沿用初版 `nativeReply` 直接发送；AstrBot 转发模式只返回临时媒体摘要。
 
 ## 开发测试
 

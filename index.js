@@ -9,8 +9,9 @@ const PLUGIN_DIR = path.resolve(process.cwd(), "plugins/yunzai_plugin_astrbot_br
 const CONFIG_PATH = path.join(PLUGIN_DIR, "config.json")
 const SHARED_KEY = Symbol.for("astrbot.yunzai.bridge.server")
 const MEDIA_CACHE_KEY = Symbol.for("astrbot.yunzai.bridge.media")
-const VERSION = "1.3.3"
+const VERSION = "1.3.4"
 const MAX_COMMAND_LENGTH = 1000
+const NATIVE_REPLY_TIMEOUT_MS = 30 * 1000
 const MEDIA_TTL_MS = 5 * 60 * 1000
 const MEDIA_MAX_ITEMS = 20
 const MEDIA_MAX_ITEM_BYTES = 20 * 1024 * 1024
@@ -662,13 +663,58 @@ async function runCommand(payload, config, result, started) {
     // Do not let adapter preparation promote an ordinary bridge event.
     event.isMaster = access.role === "master"
     const nativeReply = event.reply
-    event.reply = async (message = "", quote = false, data = {}) => {
-      result.messages.push(...normalizeMessage(message))
-      if (!payload.send_reply) return { message_id: `astrbot-capture-${crypto.randomUUID()}` }
-      if (typeof nativeReply !== "function") return false
-      return nativeReply(message, quote, data)
+    const deliveryRecords = []
+    event.reply = (message = "", quote = false, data = {}) => {
+      const capturedMessages = normalizeMessage(message)
+      result.messages.push(...capturedMessages)
+      let delivery
+      if (!payload.send_reply) {
+        delivery = Promise.resolve({ status: "capture_only", value: { message_id: `astrbot-capture-${crypto.randomUUID()}` } })
+      } else if (typeof nativeReply !== "function") {
+        delivery = Promise.resolve({ status: "failed", error: "native_reply_unavailable", value: false })
+      } else {
+        let timeoutId
+        const timeout = new Promise(resolve => {
+          timeoutId = setTimeout(() => resolve({ status: "failed", error: "native_reply_timeout", value: false }), NATIVE_REPLY_TIMEOUT_MS)
+        })
+        const nativeDelivery = Promise.resolve()
+          .then(() => nativeReply(message, quote, data))
+          .then(value => value === false
+            ? { status: "failed", error: "native_reply_returned_false", value }
+            : { status: "sent", value })
+          .catch(error => ({ status: "failed", error: error?.message || String(error), value: false }))
+        delivery = Promise.race([nativeDelivery, timeout]).finally(() => clearTimeout(timeoutId))
+      }
+      deliveryRecords.push({ capturedMessages, delivery })
+      return delivery.then(outcome => outcome.value)
     }
     const handlerResult = await PluginsLoader.deal(event)
+    const deliveryOutcomes = await Promise.all(deliveryRecords.map(record => record.delivery))
+    for (const [index, record] of deliveryRecords.entries()) {
+      for (const message of record.capturedMessages) {
+        message.native_delivery = deliveryOutcomes[index].status
+        if (deliveryOutcomes[index].error) message.native_delivery_error = deliveryOutcomes[index].error
+      }
+    }
+    const succeeded = deliveryOutcomes.filter(outcome => outcome.status === "sent").length
+    const failed = deliveryOutcomes.filter(outcome => outcome.status === "failed").length
+    result.reply_delivery = {
+      requested: Boolean(payload.send_reply),
+      status: !payload.send_reply
+        ? "capture_only"
+        : !deliveryOutcomes.length
+          ? "no_reply"
+          : failed === 0
+            ? "sent"
+            : succeeded > 0
+              ? "partial"
+              : "failed",
+      attempts: payload.send_reply ? deliveryOutcomes.length : 0,
+      succeeded,
+      failed,
+      errors: [...new Set(deliveryOutcomes.map(outcome => outcome.error).filter(Boolean))],
+    }
+    if (failed) result.warning = "命令已执行，但部分或全部 Yunzai 回复发送失败"
     if (handlerResult !== undefined && handlerResult !== true) {
       result.handler_result = safeJson(handlerResult)
     }
@@ -708,7 +754,7 @@ export function capabilities(config) {
       rate_limit: "disabled",
     },
     allow_send_reply: Boolean(config.allow_send_reply),
-    send_policy: "capture_only_by_default",
+    send_policy: "native_reply_by_default",
   }
 }
 
@@ -737,7 +783,7 @@ export async function handleRequest(req, res, config) {
       version: VERSION,
       host: config.host,
       port: config.port,
-      send_policy: "capture_only_by_default",
+      send_policy: "native_reply_by_default",
     })
   }
 
