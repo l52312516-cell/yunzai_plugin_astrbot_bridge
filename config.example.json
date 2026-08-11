@@ -3,7 +3,7 @@
   "port": 1145,
   "token": "请替换为长度足够的随机字符串",
   "default_bot_id": "",
-  "allow_send_reply": false,
+  "allow_send_reply": true,
   "discover_plugins": true,
   "max_body_bytes": 1048576,
   "game_queries": [

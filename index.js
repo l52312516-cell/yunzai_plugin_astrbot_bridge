@@ -9,7 +9,7 @@ const PLUGIN_DIR = path.resolve(process.cwd(), "plugins/yunzai_plugin_astrbot_br
 const CONFIG_PATH = path.join(PLUGIN_DIR, "config.json")
 const SHARED_KEY = Symbol.for("astrbot.yunzai.bridge.server")
 const MEDIA_CACHE_KEY = Symbol.for("astrbot.yunzai.bridge.media")
-const VERSION = "1.3.2"
+const VERSION = "1.3.3"
 const MAX_COMMAND_LENGTH = 1000
 const MEDIA_TTL_MS = 5 * 60 * 1000
 const MEDIA_MAX_ITEMS = 20
@@ -60,7 +60,7 @@ export const DEFAULT_CONFIG = {
   port: 1145,
   token: "",
   default_bot_id: "",
-  allow_send_reply: false,
+  allow_send_reply: true,
   discover_plugins: true,
   max_body_bytes: 1024 * 1024,
   game_queries: DEFAULT_GAME_QUERIES,

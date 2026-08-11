@@ -101,8 +101,8 @@ export function supportGuoba() {
         },
         {
           field: "allow_send_reply",
-          label: "允许实际发送回复",
-          bottomHelpMessage: "关闭时只捕获回复并返回 AstrBot，不发送到群聊或私聊。",
+          label: "Yunzai 原生发送回复",
+          bottomHelpMessage: "开启后沿用初版 nativeReply 机制，Yunzai 生成回复时立即发送，速度最快。",
           component: "Switch",
         },
         {

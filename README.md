@@ -7,7 +7,7 @@ Yunzai 侧联动插件。它在 Yunzai 进程中监听 HTTP JSON RPC，把 AstrB
 - 作者：[l52312516-cell](https://github.com/l52312516-cell)
 - 仓库：[l52312516-cell/yunzai_plugin_astrbot_bridge](https://github.com/l52312516-cell/yunzai_plugin_astrbot_bridge)
 - 配套 AstrBot 插件：[l52312516-cell/astrbot_plugin_yunzai_bridge](https://github.com/l52312516-cell/astrbot_plugin_yunzai_bridge)
-- 当前版本：`1.3.2`
+- 当前版本：`1.3.3`
 
 ## 兼容性
 
@@ -110,7 +110,7 @@ git clone https://github.com/l52312516-cell/yunzai_plugin_astrbot_bridge.git plu
   "port": 1145,
   "token": "请替换为足够长的随机字符串",
   "default_bot_id": "",
-  "allow_send_reply": false,
+  "allow_send_reply": true,
   "discover_plugins": true,
   "max_body_bytes": 1048576,
   "game_queries": []
@@ -123,7 +123,7 @@ git clone https://github.com/l52312516-cell/yunzai_plugin_astrbot_bridge.git plu
 | `port` | `1145` | HTTP 监听端口 |
 | `token` | 空 | 必填，共享鉴权 Token |
 | `default_bot_id` | 空 | 执行事件使用的 Yunzai Bot；空时使用当前默认账号 |
-| `allow_send_reply` | `false` | 是否允许把 Yunzai 回复发送到真实群聊或私聊 |
+| `allow_send_reply` | `true` | 是否沿用初版 `nativeReply` 机制立即发送回复 |
 | `discover_plugins` | `true` | 是否在能力接口返回已加载插件规则 |
 | `max_body_bytes` | `1048576` | HTTP 请求体最大字节数 |
 | `game_queries` | 内置示例 | 可选结构化游戏模板数组 |
@@ -417,9 +417,11 @@ TRSS 使用 `Bot.prepareEvent(event)`；Miao 则补齐 `bot`、`group`、`member
 
 ## 回复发送策略
 
-`allow_send_reply=false` 时，插件只捕获回复并返回 AstrBot，不调用真实群聊或好友发送函数。
+`allow_send_reply=true` 是默认快速模式。插件在 `event.reply` 发生时调用原生群聊或好友发送函数，不等待 RPC 图片回传和二次上传。
 
-如果需要真实发送，两端必须都打开 `allow_send_reply`，并且 Agent 调用传入 `send_reply=true`。
+两端都打开 `allow_send_reply` 后，Agent 工具默认传入 `send_reply=true`。旧 `config.json` 中已有的 `false` 不会自动覆盖，需要在锅巴中手动打开。
+
+设置 `send_reply=false` 时进入捕获模式：Yunzai 不直接发送，图片由 AstrBot 的 `deliver_captured_images` 后备机制转发。
 
 重要：`allow_send_reply` 只控制回复发送。命令自身的数据库写入、配置修改、更新或重启副作用不会因此取消。
 
@@ -462,11 +464,11 @@ TRSS 使用 `Bot.prepareEvent(event)`；Miao 则补齐 `bot`、`group`、`member
 
 ### 命令显示成功但没有真实消息
 
-这是默认行为。回复已放在 RPC 响应的 `messages` 中。只有两端允许且调用时设置 `send_reply=true` 才会发送到会话。
+检查两端 `allow_send_reply` 是否为 `true`。如果使用捕获模式，则检查 AstrBot 的 `deliver_captured_images` 和 Tool Result 中的 `delivery_error`。
 
 ### AstrBot Tool Result 出现 PNG 二进制乱码
 
-旧版代码把图片 `Buffer` 当作 URL 转成了字符串，日志中会出现 `�PNG`、`IHDR` 和 `IDAT`。升级两端到 `1.3.2` 后，二进制图片只返回临时媒体 URL 和摘要信息，AstrBot 端会下载并通过原生图片消息发送。
+旧版代码把图片 `Buffer` 当作 URL 转成了字符串，日志中会出现 `�PNG`、`IHDR` 和 `IDAT`。升级两端到 `1.3.3` 后，默认沿用初版 `nativeReply` 直接发送；捕获模式只返回临时媒体摘要并由 AstrBot 转发。
 
 ## 开发测试
 
