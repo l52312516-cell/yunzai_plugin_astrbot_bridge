@@ -7,7 +7,7 @@ Yunzai 侧联动插件。它在 Yunzai 进程中监听 HTTP JSON RPC，把 AstrB
 - 作者：[l52312516-cell](https://github.com/l52312516-cell)
 - 仓库：[l52312516-cell/yunzai_plugin_astrbot_bridge](https://github.com/l52312516-cell/yunzai_plugin_astrbot_bridge)
 - 配套 AstrBot 插件：[l52312516-cell/astrbot_plugin_yunzai_bridge](https://github.com/l52312516-cell/astrbot_plugin_yunzai_bridge)
-- 当前版本：`1.3.0`
+- 当前版本：`1.3.1`
 
 ## 兼容性
 
@@ -333,6 +333,21 @@ GET /astrbot-bridge/v1/capabilities
 
 返回权限策略、游戏模板、插件规则、发现状态和发送策略。
 
+### 临时图片媒体
+
+```text
+GET /astrbot-bridge/v1/media/<48位随机ID>
+```
+
+当 Yunzai 插件通过 `event.reply` 返回图片 `Buffer` 时，桥接不会执行 `String(buffer)`，也不会把 Base64 塞进 JSON。它会缓存图片并在 Tool Result 返回临时媒体路径、MIME、大小和 SHA256。
+
+- 有效期：5 分钟。
+- 单张上限：20 MiB。
+- 总缓存上限：64 MiB。
+- 最大缓存数量：20 张，空间不足时优先淘汰旧图片。
+- 访问媒体接口仍需 Bearer Token。
+- 超限或不支持的图片值只返回摘要和 `binary_omitted`，不输出原始字节。
+
 ### 执行命令
 
 ```text
@@ -397,7 +412,7 @@ TRSS 使用 `Bot.prepareEvent(event)`；Miao 则补齐 `bot`、`group`、`member
 `event.reply` 支持捕获：
 
 - 文本消息段。
-- 图片 URL 或文件字段。
+- 图片 URL、文件路径或二进制 `Buffer`；二进制会转换成临时媒体引用。
 - JSON、转发或未知消息段的安全序列化结果。
 
 ## 回复发送策略
@@ -448,6 +463,10 @@ TRSS 使用 `Bot.prepareEvent(event)`；Miao 则补齐 `bot`、`group`、`member
 ### 命令显示成功但没有真实消息
 
 这是默认行为。回复已放在 RPC 响应的 `messages` 中。只有两端允许且调用时设置 `send_reply=true` 才会发送到会话。
+
+### AstrBot Tool Result 出现 PNG 二进制乱码
+
+旧版代码把图片 `Buffer` 当作 URL 转成了字符串，日志中会出现 `�PNG`、`IHDR` 和 `IDAT`。升级到 `1.3.1` 后，二进制图片只返回临时媒体 URL 和摘要信息。
 
 ## 开发测试
 

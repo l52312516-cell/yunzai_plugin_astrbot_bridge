@@ -8,8 +8,13 @@ import Config from "../../lib/config/config.js"
 const PLUGIN_DIR = path.resolve(process.cwd(), "plugins/yunzai_plugin_astrbot_bridge")
 const CONFIG_PATH = path.join(PLUGIN_DIR, "config.json")
 const SHARED_KEY = Symbol.for("astrbot.yunzai.bridge.server")
-const VERSION = "1.3.0"
+const MEDIA_CACHE_KEY = Symbol.for("astrbot.yunzai.bridge.media")
+const VERSION = "1.3.1"
 const MAX_COMMAND_LENGTH = 1000
+const MEDIA_TTL_MS = 5 * 60 * 1000
+const MEDIA_MAX_ITEMS = 20
+const MEDIA_MAX_ITEM_BYTES = 20 * 1024 * 1024
+const MEDIA_MAX_TOTAL_BYTES = 64 * 1024 * 1024
 const DISCOVERY_LIMITS = Object.freeze({
   plugins: 200,
   rulesPerPlugin: 50,
@@ -72,6 +77,102 @@ function safeJson(value) {
   } catch {
     return String(value)
   }
+}
+
+function binaryBuffer(value) {
+  if (Buffer.isBuffer(value)) return value
+  if (value instanceof ArrayBuffer) return Buffer.from(value)
+  if (ArrayBuffer.isView(value)) return Buffer.from(value.buffer, value.byteOffset, value.byteLength)
+  if (value?.type === "Buffer" && Array.isArray(value.data)) return Buffer.from(value.data)
+  return null
+}
+
+function imageMimeType(buffer) {
+  if (buffer.length >= 8 && buffer.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return "image/png"
+  if (buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) return "image/jpeg"
+  if (buffer.length >= 6 && ["GIF87a", "GIF89a"].includes(buffer.subarray(0, 6).toString("ascii"))) return "image/gif"
+  if (buffer.length >= 12 && buffer.subarray(0, 4).toString("ascii") === "RIFF" && buffer.subarray(8, 12).toString("ascii") === "WEBP") return "image/webp"
+  return "application/octet-stream"
+}
+
+function mediaCache() {
+  if (!(globalThis[MEDIA_CACHE_KEY] instanceof Map)) globalThis[MEDIA_CACHE_KEY] = new Map()
+  return globalThis[MEDIA_CACHE_KEY]
+}
+
+function pruneMediaCache(now = Date.now()) {
+  const cache = mediaCache()
+  for (const [id, media] of cache) {
+    if (media.expires_at <= now) cache.delete(id)
+  }
+  let totalBytes = [...cache.values()].reduce((sum, media) => sum + media.buffer.length, 0)
+  while (cache.size > MEDIA_MAX_ITEMS || totalBytes > MEDIA_MAX_TOTAL_BYTES) {
+    const oldestId = cache.keys().next().value
+    if (!oldestId) break
+    totalBytes -= cache.get(oldestId)?.buffer.length || 0
+    cache.delete(oldestId)
+  }
+  return { cache, totalBytes }
+}
+
+function cacheImage(buffer) {
+  const mimeType = imageMimeType(buffer)
+  const summary = {
+    mime_type: mimeType,
+    size_bytes: buffer.length,
+    sha256: crypto.createHash("sha256").update(buffer).digest("hex"),
+  }
+  if (buffer.length > MEDIA_MAX_ITEM_BYTES) {
+    return { ...summary, url: "", binary_omitted: true, reason: "image_too_large" }
+  }
+  const state = pruneMediaCache()
+  while (state.cache.size >= MEDIA_MAX_ITEMS || state.totalBytes + buffer.length > MEDIA_MAX_TOTAL_BYTES) {
+    const oldestId = state.cache.keys().next().value
+    if (!oldestId) break
+    state.totalBytes -= state.cache.get(oldestId)?.buffer.length || 0
+    state.cache.delete(oldestId)
+  }
+  if (state.totalBytes + buffer.length > MEDIA_MAX_TOTAL_BYTES) {
+    return { ...summary, url: "", binary_omitted: true, reason: "media_cache_full" }
+  }
+  const id = crypto.randomBytes(24).toString("hex")
+  state.cache.set(id, { buffer: Buffer.from(buffer), mime_type: mimeType, expires_at: Date.now() + MEDIA_TTL_MS })
+  return {
+    ...summary,
+    url: `/astrbot-bridge/v1/media/${id}`,
+    temporary: true,
+    expires_in_seconds: MEDIA_TTL_MS / 1000,
+    requires_bearer_token: true,
+  }
+}
+
+function cachedImageFromString(value) {
+  const dataUrl = value.match(/^data:(image\/[a-z0-9.+-]+);base64,([a-z0-9+/=\s]+)$/i)
+  if (dataUrl) {
+    try {
+      return cacheImage(Buffer.from(dataUrl[2].replace(/\s+/g, ""), "base64"))
+    } catch {
+      return { url: "", binary_omitted: true, reason: "invalid_image_data_url" }
+    }
+  }
+  const controlCharacters = [...value].filter(character => {
+    const code = character.charCodeAt(0)
+    return code < 32 && character !== "\r" && character !== "\n" && character !== "\t"
+  }).length
+  if (value.includes("\u0000") || (/PNG[\r\n]/.test(value) && controlCharacters > 0)) {
+    return {
+      url: "",
+      binary_omitted: true,
+      reason: "binary_string_cannot_be_recovered",
+      size_characters: value.length,
+    }
+  }
+  return { url: value }
+}
+
+export function getCachedMedia(id) {
+  const { cache } = pruneMediaCache()
+  return cache.get(String(id || "")) || null
 }
 
 function normalizeArray(value) {
@@ -333,10 +434,15 @@ export function normalizeMessage(message) {
       if (!part || typeof part !== "object") return null
       if (part.type === "text") return { type: "text", text: String(part.text || part.data || "") }
       if (part.type === "image") {
-        return {
-          type: "image",
-          url: String(part.url || part.file || part.data || ""),
+        const candidates = [part.url, part.file, part.data?.url, part.data?.file, part.data]
+        for (const candidate of candidates) {
+          const buffer = binaryBuffer(candidate)
+          if (buffer) return { type: "image", ...cacheImage(buffer) }
+          if (typeof candidate === "string" && candidate) {
+            return { type: "image", ...cachedImageFromString(candidate) }
+          }
         }
+        return { type: "image", url: "", binary_omitted: true, reason: "unsupported_image_value" }
       }
       return { type: String(part.type || "unknown"), data: safeJson(part) }
     })
@@ -612,6 +718,18 @@ export async function handleRequest(req, res, config) {
   }
 
   const url = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`)
+  const mediaMatch = req.method === "GET" && url.pathname.match(/^\/astrbot-bridge\/v1\/media\/([a-f0-9]{48})$/)
+  if (mediaMatch) {
+    const media = getCachedMedia(mediaMatch[1])
+    if (!media) return sendJson(res, 404, { success: false, error: "媒体不存在或已过期" })
+    res.writeHead(200, {
+      "Content-Type": media.mime_type,
+      "Content-Length": media.buffer.length,
+      "Cache-Control": "no-store",
+      "X-Content-Type-Options": "nosniff",
+    })
+    return res.end(media.buffer)
+  }
   if (req.method === "GET" && url.pathname === "/astrbot-bridge/v1/health") {
     return sendJson(res, 200, {
       success: true,
