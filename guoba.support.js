@@ -95,9 +95,10 @@ export function supportGuoba() {
         },
         {
           field: "default_bot_id",
-          label: "默认 Bot ID",
-          bottomHelpMessage: "多账号 Yunzai 可填写用于执行 RPC 的账号。",
+          label: "默认 Bot ID（原生发送必填）",
+          bottomHelpMessage: "填写 Yunzai 实际登录的机器人 QQ 号，不是 AstrBot 的 Bot ID。AstrBot 选择 Yunzai 原生发送时必须填写，保存后必须完整重启 Yunzai；AstrBot 转发或仅捕获模式可留空。",
           component: "Input",
+          componentProps: { placeholder: "请输入 Yunzai 机器人 QQ 号" },
         },
         {
           field: "discover_plugins",
@@ -147,7 +148,7 @@ export function supportGuoba() {
           }
           fs.mkdirSync(path.dirname(CONFIG_PATH), { recursive: true })
           fs.writeFileSync(CONFIG_PATH, `${JSON.stringify(next, null, 2)}\n`, "utf8")
-          return Result.ok({}, "保存成功，请重载 Yunzai 插件使配置生效")
+          return Result.ok({}, "保存成功。修改默认 Bot ID 或监听配置后，请完整重启 Yunzai 使配置生效")
         } catch (error) {
           return resultError(Result, error.message)
         }

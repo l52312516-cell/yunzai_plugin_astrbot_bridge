@@ -7,7 +7,7 @@ Yunzai 侧联动插件。它在 Yunzai 进程中监听 HTTP JSON RPC，把 AstrB
 - 作者：[l52312516-cell](https://github.com/l52312516-cell)
 - 仓库：[l52312516-cell/yunzai_plugin_astrbot_bridge](https://github.com/l52312516-cell/yunzai_plugin_astrbot_bridge)
 - 配套 AstrBot 插件：[l52312516-cell/astrbot_plugin_yunzai_bridge](https://github.com/l52312516-cell/astrbot_plugin_yunzai_bridge)
-- 当前版本：`1.3.6`
+- 当前版本：`1.3.7`
 
 ## 兼容性
 
@@ -85,7 +85,7 @@ git clone https://github.com/l52312516-cell/yunzai_plugin_astrbot_bridge.git plu
 
 - 监听地址和端口。
 - 共享 Token。
-- 默认 Bot ID。
+- 默认 Bot ID（Yunzai 原生发送必填）。
 - 当前发送策略说明（发送模式由 AstrBot 单一配置控制）。
 - 是否自动发现插件。
 - 请求体上限。
@@ -121,12 +121,24 @@ git clone https://github.com/l52312516-cell/yunzai_plugin_astrbot_bridge.git plu
 | `host` | `127.0.0.1` | HTTP 监听地址；局域网访问改为 `0.0.0.0` |
 | `port` | `1145` | HTTP 监听端口 |
 | `token` | 空 | 必填，共享鉴权 Token |
-| `default_bot_id` | 空 | 执行事件使用的 Yunzai Bot；空时使用当前默认账号 |
+| `default_bot_id` | 空 | Yunzai 实际登录的机器人 QQ；原生发送必填，转发/仅捕获可留空 |
 | `discover_plugins` | `true` | 是否在能力接口返回已加载插件规则 |
 | `max_body_bytes` | `1048576` | HTTP 请求体最大字节数 |
 | `game_queries` | 内置示例 | 可选结构化游戏模板数组 |
 
 Token 为空时，桥接服务不会启动。
+
+### 默认 Bot ID 与发送模式
+
+`default_bot_id` 填写 Yunzai 实际登录的机器人 QQ 号，不是 AstrBot 的 Bot ID。两端 Bot ID 可以不同。
+
+| AstrBot 模式 | `default_bot_id` 要求 | 说明 |
+| --- | --- | --- |
+| `yunzai_native` | 必须填写 | Yunzai 使用该账号向目标群或用户发送回复 |
+| `astrbot_forward` | 可以留空 | Yunzai 只生成和捕获图片，最终由当前 AstrBot 会话发送 |
+| `capture_only` | 可以留空 | 不实际发送回复 |
+
+首次填写或修改 `default_bot_id` 后必须完整重启 Yunzai，不能只依赖热重载。原生发送还要求该 Yunzai Bot 在线，并且已经加入目标群或能够向目标用户发送私聊消息。
 
 ## 网络配置
 
@@ -415,7 +427,7 @@ TRSS 使用 `Bot.prepareEvent(event)`；Miao 则补齐 `bot`、`group`、`member
 
 ## 回复发送策略
 
-发送模式只由 AstrBot 的 `reply_delivery_mode` 控制，不再有 Yunzai 端第二个开关。AstrBot 选择 `yunzai_native` 时，RPC 会传入 `send_reply=true`，Yunzai 在 `event.reply` 发生时直接 `await nativeReply(...)`。这与 `v1.2.1` 的快速发送主链一致，不等待 RPC 图片回传，也不在 loader 执行结束后额外等待发送跟踪 Promise。
+发送模式只由 AstrBot 的 `reply_delivery_mode` 控制，不再有 Yunzai 端第二个开关。AstrBot 选择 `yunzai_native` 时，必须先配置 Yunzai `default_bot_id` 并完整重启；RPC 随后会传入 `send_reply=true`，Yunzai 在 `event.reply` 发生时直接 `await nativeReply(...)`。这与 `v1.2.1` 的快速发送主链一致，不等待 RPC 图片回传，也不在 loader 执行结束后额外等待发送跟踪 Promise。
 
 旧 `config.json` 中的 `allow_send_reply` 会被忽略，可以保留也可以删除。它不会再让新版静默进入仅捕获或拒绝发送。
 
@@ -485,11 +497,11 @@ AstrBot 选择 `astrbot_forward` 时进入捕获模式：Yunzai 不直接发送�
 
 ### 命令显示成功但没有真实消息
 
-确认两端都是 `1.3.6`，并检查 AstrBot 是否选择 Yunzai 原生模式。Yunzai 锅巴不再有第二个发送开关。查看 `effective_target` 和 `reply_delivery.status`；原生失败时再查看 AstrBot 的 `delivery_error`。
+确认两端都是 `1.3.7`，并检查 AstrBot 是否选择 Yunzai 原生模式。原生模式必须在 Yunzai 锅巴填写实际机器人 QQ 作为默认 Bot ID，然后完整重启 Yunzai。查看 `effective_target` 和 `reply_delivery.status`；原生失败时再查看 AstrBot 的 `delivery_error`。
 
 ### AstrBot Tool Result 出现 PNG 二进制乱码
 
-旧版代码把图片 `Buffer` 当作 URL 转成了字符串，日志中会出现 `�PNG`、`IHDR` 和 `IDAT`。升级两端到 `1.3.6` 后，默认沿用 `v1.2.1` 的 `nativeReply` 直接发送；AstrBot 转发模式只返回临时媒体摘要。
+旧版代码把图片 `Buffer` 当作 URL 转成了字符串，日志中会出现 `�PNG`、`IHDR` 和 `IDAT`。升级两端到 `1.3.7` 后，默认沿用 `v1.2.1` 的 `nativeReply` 直接发送；AstrBot 转发模式只返回临时媒体摘要。
 
 ### 图片发送到错误目标
 
