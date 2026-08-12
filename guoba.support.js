@@ -66,7 +66,7 @@ export function supportGuoba() {
             type: "textarea",
             rows: 5,
             disabled: true,
-            placeholder: "主人：全部 Yunzai 权限。普通用户：仅自己的 UID、面板更新及基础游戏查询；未知和高风险命令拒绝。主人会话中的提示注入可能修改配置、更新插件或重启 Yunzai。",
+            placeholder: "主人：全部 Yunzai 权限。普通用户：自己的 UID、面板、基础游戏查询，以及点歌、音乐搜索和安全娱乐查询；未知和高风险命令拒绝。主人会话中的提示注入可能修改配置、更新插件或重启 Yunzai。",
           },
         },
         { component: "Divider", label: "HTTP 服务" },
@@ -125,7 +125,7 @@ export function supportGuoba() {
         const config = readConfig()
         return {
           ...config,
-          permission_policy_notice: "主人拥有全部 Yunzai 权限；普通用户仅允许自己的 UID、面板与基础游戏查询。未知及高风险命令拒绝。",
+          permission_policy_notice: "主人拥有全部 Yunzai 权限；普通用户允许自己的 UID、面板、基础游戏查询、点歌、音乐搜索和安全娱乐查询。未知及高风险命令拒绝。",
           game_queries_json: jsonField(config.game_queries),
         }
       },

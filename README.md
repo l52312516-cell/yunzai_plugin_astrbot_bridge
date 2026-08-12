@@ -2,12 +2,12 @@
 
 Yunzai 侧联动插件。它在 Yunzai 进程中监听 HTTP JSON RPC，把 AstrBot Agent 的请求转换为标准 Yunzai 消息事件，并交给统一的 `PluginsLoader.deal(event)` 处理。
 
-因此桥接能力不限于游戏面板。主人可以调用任意已加载插件的指令；普通用户只允许 UID、面板和基础游戏查询等低风险能力。
+因此桥接能力不限于游戏面板。主人可以调用任意已加载插件的指令；普通用户可以使用自己的 UID、面板、基础游戏查询、点歌、音乐搜索和安全娱乐等低风险能力。
 
 - 作者：[l52312516-cell](https://github.com/l52312516-cell)
 - 仓库：[l52312516-cell/yunzai_plugin_astrbot_bridge](https://github.com/l52312516-cell/yunzai_plugin_astrbot_bridge)
 - 配套 AstrBot 插件：[l52312516-cell/astrbot_plugin_yunzai_bridge](https://github.com/l52312516-cell/astrbot_plugin_yunzai_bridge)
-- 当前版本：`1.3.8`
+- 当前版本：`1.3.9`
 
 ## 兼容性
 
@@ -34,7 +34,7 @@ AstrBot RPC
   -> 构造群聊或私聊 event
   -> Bot.prepareEvent(event) 或 Miao 兼容准备
   -> PluginsLoader.deal(event)
-  -> 捕获 event.reply
+  -> 捕获 event.reply 与当前目标 sendMsg
   -> JSON 返回 AstrBot
 ```
 
@@ -208,6 +208,10 @@ http://<Yunzai服务器内网IP>:1145
 | 战斗数据 | 深渊、战场、战绩、忘却、虚构、末日、展柜 |
 | 记录 | 抽卡记录、月历、月收入 |
 | 基础入口 | 游戏帮助、菜单、状态、版本 |
+| 音乐 | 点歌、歌曲搜索、音乐查询 |
+| 安全搜索 | 天气、百科、翻译、搜图、识图 |
+| 媒体查询 | 壁纸、头像、图片、视频、语音、表情包查询 |
+| 安全娱乐 | 抽签、运势、笑话、随机角色等不修改配置的命令 |
 
 ### 普通用户拒绝范围
 
@@ -219,7 +223,7 @@ http://<Yunzai服务器内网IP>:1145
 - 规则要求 `master`、`admin` 或 `owner` 的命令。
 - 未匹配插件规则或无法归入安全类别的命令。
 
-普通用户调用天气、音乐、群管理或其他非游戏插件时，如果命令无法归入上述安全类别，会默认拒绝。主人可以调用这些插件。这样既保留统一 Yunzai 插件调用能力，又避免普通用户通过 Agent 执行未知副作用。
+普通用户可以调用已匹配插件规则的点歌、音乐搜索、天气、百科、图片查询和安全娱乐命令。音乐平台设置、群管理以及其他无法归入安全类别的命令仍默认拒绝；主人可以调用全部插件。
 
 权限拒绝返回 HTTP `403`：
 
@@ -321,6 +325,10 @@ http://<Yunzai服务器内网IP>:1145
 
 发现规则只用于能力提示。桥接不会自动把发现到的正则转换成游戏模板，也不会因为规则被发现就给普通用户开放执行权限。
 
+能力接口还返回 `agent_capabilities`，把安全候选规则聚合为固定分类：`music`、`search`、`game`、`media`、`entertainment`、`utility` 和通用 `plugins`。每类只返回有限数量、有限长度的候选正则；音乐类只有在示例命令真实匹配已发现正则时才提供 `#点歌 {keyword}` 等调用模板，不会盲猜插件命令。
+
+AstrBot 据此最多注册七个动态工具。动态发现不改变权限：工具最终提交的完整命令仍会重新匹配当前插件规则，并执行主人/普通用户判定。
+
 ## HTTP API
 
 所有请求必须包含：
@@ -341,7 +349,7 @@ GET /astrbot-bridge/v1/health
 GET /astrbot-bridge/v1/capabilities
 ```
 
-返回权限策略、游戏模板、插件规则、发现状态和发送策略。
+返回权限策略、游戏模板、插件规则、`agent_capabilities`、发现状态和发送策略。
 
 ### 临时图片媒体
 
@@ -427,9 +435,11 @@ TRSS 使用 `Bot.prepareEvent(event)`；Miao 则补齐 `bot`、`group`、`member
 - 语音、视频和文件 URL；二进制媒体会转换成带鉴权的临时媒体引用。
 - 其他未知消息段的安全序列化结果。
 
+部分插件会绕过 `event.reply`，直接调用当前 `group.sendMsg` 或 `friend.sendMsg`。`1.3.9` 会在单次命令执行期间临时跟踪该目标方法，命令结束立即恢复；若 `event.reply` 内部再次委托给同一个 `sendMsg`，只记录一次，不会重复统计或叠加发送包装器。适配器把 `sendMsg` 设为只读时，会保留 `event.reply` 捕获路径而不会中断命令。
+
 ## 回复发送策略
 
-发送模式只由 AstrBot 的 `reply_delivery_mode` 控制，不再有 Yunzai 端第二个开关。AstrBot 选择 `yunzai_native` 时，必须先配置 Yunzai `default_bot_id` 并完整重启；RPC 随后会传入 `send_reply=true`，Yunzai 在 `event.reply` 发生时直接 `await nativeReply(...)`。这与 `v1.2.1` 的快速发送主链一致，不等待 RPC 图片回传，也不在 loader 执行结束后额外等待发送跟踪 Promise。
+发送模式只由 AstrBot 的 `reply_delivery_mode` 控制，不再有 Yunzai 端第二个开关。AstrBot 选择 `yunzai_native` 时建议配置 Yunzai `default_bot_id` 并完整重启；Yunzai 会先查找真实拥有目标群或好友的在线 Bot，找不到明确匹配时再回退 `default_bot_id`。随后在 `event.reply` 发生时直接 `await nativeReply(...)`，不增加固定等待时间。
 
 旧 `config.json` 中的 `allow_send_reply` 会被忽略，可以保留也可以删除。它不会再让新版静默进入仅捕获或拒绝发送。
 
@@ -439,11 +449,14 @@ AstrBot 选择 `astrbot_forward` 时进入捕获模式：Yunzai 不直接发送�
 
 - `reply_delivery.status=sent`：全部原生回复已发送。
 - `failed`：全部发送失败。
+- `unconfirmed`：适配器返回空值或无法提供消息 ID/明确成功状态，不能证明已送达。
 - `partial`：部分成功、部分失败。
 - `no_reply`：命令没有调用 `event.reply`。
 - `capture_only`：按配置只捕获。
 
 每个捕获消息还带有 `native_delivery` 和可选 `native_delivery_error`。命令 `success:true` 不再被解释为消息一定发送成功。
+
+响应中的 `bot_resolution` 会给出选中的 `bot_id`、选择来源和 `reachable`。原生返回 `false`、抛错或目标明确不可达时记为 `failed`；返回消息 ID、明确成功状态或 `true` 时才记为 `sent`。AstrBot 默认会对 `failed` 和 `unconfirmed` 媒体使用当前 AstrBot 会话回退发送。
 
 响应还会返回 `effective_target`，显示 Yunzai 实际构造的目标：
 
@@ -499,15 +512,19 @@ AstrBot 选择 `astrbot_forward` 时进入捕获模式：Yunzai 不直接发送�
 
 ### 命令显示成功但没有真实消息
 
-确认两端都是 `1.3.8`，并检查 AstrBot 是否选择 Yunzai 原生模式。原生模式必须在 Yunzai 锅巴填写实际机器人 QQ 作为默认 Bot ID，然后完整重启 Yunzai。查看 `effective_target` 和 `reply_delivery.status`；原生失败时再查看 AstrBot 的 `delivery_error`。
+确认两端都是 `1.3.9`，并检查 AstrBot 是否选择 Yunzai 原生模式。原生模式应在 Yunzai 锅巴填写实际机器人 QQ 作为默认 Bot ID，然后完整重启 Yunzai。查看 `bot_resolution`、`effective_target` 和 `reply_delivery.status`；`unconfirmed` 默认会触发 AstrBot 当前会话媒体回退。
 
 ### AstrBot Tool Result 出现 PNG 二进制乱码
 
-旧版代码把图片 `Buffer` 当作 URL 转成了字符串，日志中会出现 `�PNG`、`IHDR` 和 `IDAT`。升级两端到 `1.3.8` 后，默认沿用 `v1.2.1` 的 `nativeReply` 直接发送；AstrBot 转发模式只返回临时媒体摘要。
+旧版代码把图片 `Buffer` 当作 URL 转成了字符串，日志中会出现 `�PNG`、`IHDR` 和 `IDAT`。升级两端到 `1.3.9` 后，默认沿用 `v1.2.1` 的 `nativeReply` 直接发送；AstrBot 转发模式只返回临时媒体摘要。
 
 ### 点歌插件返回卡片但 AstrBot 没有发送
 
-升级双端到 `1.3.8`。新版会把 OneBot `music`、`json`、`share`、`record/audio`、`video` 和 `file` 消息段规范化给 AstrBot，转发模式不再只处理图片。最终结果查看 `media_delivery.status`，不要根据命令 `success` 推测媒体已经送达。
+升级双端到 `1.3.9`。新版会把 OneBot `music`、`json`、`share`、`record/audio`、`video` 和 `file` 消息段规范化给 AstrBot，转发模式不再只处理图片。最终结果查看 `media_delivery.status`，不要根据命令 `success` 推测媒体已经送达。
+
+### LLM 没有调用 Yunzai 点歌插件
+
+确认 `discover_plugins=true`，再请求能力接口检查 `agent_capabilities` 是否包含 `yunzai_music` 和非空 `invocation_templates`。AstrBot 端需开启动态工具与 LLM 桥接提示；本地点歌能力不存在或失败后，LLM 会被要求继续尝试 `yunzai_music`。普通用户允许点歌，但音乐平台设置、凭据和插件管理命令仍会返回 `403`。
 
 ### 图片发送到错误目标
 
@@ -529,6 +546,7 @@ Node 集成测试会构造临时 Yunzai 根目录和 mock loader，覆盖：
 - 危险 `game_queries` 防绕过。
 - 身份缺失和伪造 Bot ID。
 - 消息捕获与 `send_reply=false`。
+- 多 Bot 目标选择、原生发送状态以及直接 `sendMsg` 捕获和恢复。
 - 锅巴配置读写。
 - HTTP 鉴权、状态码和请求处理。
 

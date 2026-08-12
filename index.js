@@ -9,7 +9,7 @@ const PLUGIN_DIR = path.resolve(process.cwd(), "plugins/yunzai_plugin_astrbot_br
 const CONFIG_PATH = path.join(PLUGIN_DIR, "config.json")
 const SHARED_KEY = Symbol.for("astrbot.yunzai.bridge.server")
 const MEDIA_CACHE_KEY = Symbol.for("astrbot.yunzai.bridge.media")
-const VERSION = "1.3.8"
+const VERSION = "1.3.9"
 const MAX_COMMAND_LENGTH = 1000
 const MEDIA_TTL_MS = 5 * 60 * 1000
 const MEDIA_MAX_ITEMS = 20
@@ -19,6 +19,8 @@ const DISCOVERY_LIMITS = Object.freeze({
   plugins: 200,
   rulesPerPlugin: 50,
   patternLength: 500,
+  agentPatterns: 12,
+  agentPatternLength: 160,
 })
 
 export const DEFAULT_GAME_QUERIES = [
@@ -193,6 +195,10 @@ const ADMIN_PATTERN = /(配置|权限|主人|子用户|主用户|代绑|群管�
 const UID_PATTERN = /((绑定|修改|切换|设置).{0,12}(uid|用户编号|\d{5,12})|(uid|用户编号).{0,12}(绑定|修改|切换|设置|解绑)|解绑(?:uid|用户编号)?$)/i
 const SETTING_PATTERN = /(设置|开启|关闭)/i
 const PANEL_UPDATE_PATTERN = /(更新.{0,12}面板|面板.{0,12}更新)/i
+const MUSIC_PATTERN = /(点歌|歌曲|音乐|网易云|qq音乐|酷狗|播放(?:歌曲|音乐)?)/i
+const SEARCH_PATTERN = /(搜索|搜图|识图|百科|翻译|天气|以图搜图)/i
+const MEDIA_QUERY_PATTERN = /(壁纸|头像|图片|视频|语音|表情包)/i
+const ENTERTAINMENT_PATTERN = /(抽签|运势|今日(?:老婆|老公)|随机(?:角色|图片)|笑话|娱乐|猜(?:角色|数字))/i
 const QUERY_CATEGORIES = [
   ["panel", /(面板|参考面板)/i],
   ["strategy", /(攻略|配队|养成)/i],
@@ -203,6 +209,15 @@ const QUERY_CATEGORIES = [
   ["help", /(帮助|菜单|状态|版本)/i],
 ]
 
+const AGENT_CATEGORY_DEFINITIONS = Object.freeze([
+  { id: "music", tool_name: "yunzai_music", label: "音乐与点歌", pattern: MUSIC_PATTERN, ordinary_allowed: true },
+  { id: "search", tool_name: "yunzai_search", label: "搜索与百科", pattern: SEARCH_PATTERN, ordinary_allowed: true },
+  { id: "game", tool_name: "yunzai_game", label: "游戏查询", pattern: /(面板|攻略|图鉴|体力|便笺|便签|深渊|战绩|角色|武器|配队|抽卡记录|月历)/i, ordinary_allowed: true },
+  { id: "media", tool_name: "yunzai_media", label: "图片与媒体", pattern: MEDIA_QUERY_PATTERN, ordinary_allowed: true },
+  { id: "entertainment", tool_name: "yunzai_entertainment", label: "娱乐查询", pattern: ENTERTAINMENT_PATTERN, ordinary_allowed: true },
+  { id: "utility", tool_name: "yunzai_utility", label: "帮助与实用工具", pattern: /(帮助|菜单|状态|版本|计算|转换|工具)/i, ordinary_allowed: true },
+])
+
 function botIdValue(value) {
   if (Array.isArray(value)) return String(value[0] || "").trim()
   return String(value || "").trim()
@@ -210,6 +225,66 @@ function botIdValue(value) {
 
 function defaultBotId(config) {
   return botIdValue(config.default_bot_id || globalThis.Bot?.uin)
+}
+
+function mapValue(map, id) {
+  if (!map || typeof map.get !== "function") return undefined
+  return map.get(id) ?? map.get(String(id)) ?? map.get(Number(id))
+}
+
+function mapMembership(map, id) {
+  if (!map || typeof map.has !== "function") return null
+  if (map.has(id) || map.has(String(id)) || map.has(Number(id))) return true
+  return Number(map.size) > 0 ? false : null
+}
+
+function availableBotIds(config) {
+  const ids = []
+  const add = value => {
+    for (const item of Array.isArray(value) ? value : [value]) {
+      const id = String(item || "").trim()
+      if (id && !ids.includes(id)) ids.push(id)
+    }
+  }
+  add(config.default_bot_id)
+  add(globalThis.Bot?.uin)
+  if (globalThis.Bot?.bots && typeof globalThis.Bot.bots === "object") add(Object.keys(globalThis.Bot.bots))
+  return ids
+}
+
+function accountMembership(account, target) {
+  if (!account || typeof account !== "object") return false
+  if (target.group_id) return mapMembership(account.gl, target.group_id)
+  return mapMembership(account.fl, target.user_id)
+}
+
+export function resolveBotForTarget(targetValue, config = DEFAULT_CONFIG) {
+  const target = targetValue && typeof targetValue === "object" ? targetValue : {}
+  const groupId = String(target.group_id || "").trim()
+  const userId = String(target.user_id || "").trim()
+  const root = globalThis.Bot
+  const aggregateMap = groupId ? root?.gl : root?.fl
+  const aggregateEntry = mapValue(aggregateMap, groupId || userId)
+  const aggregateBotId = String(aggregateEntry?.bot_id || aggregateEntry?.self_id || aggregateEntry?.bot?.uin || "").trim()
+  if (aggregateBotId && botAccount(aggregateBotId)) {
+    return { bot_id: aggregateBotId, source: groupId ? "group_membership" : "friend_membership", reachable: true }
+  }
+
+  for (const botId of availableBotIds(config)) {
+    const membership = accountMembership(botAccount(botId), { group_id: groupId, user_id: userId })
+    if (membership === true) {
+      return { bot_id: botId, source: groupId ? "group_membership" : "friend_membership", reachable: true }
+    }
+  }
+
+  const fallbackId = defaultBotId(config)
+  if (!fallbackId) return { bot_id: "", source: "none", reachable: false }
+  const fallbackMembership = accountMembership(botAccount(fallbackId), { group_id: groupId, user_id: userId })
+  return {
+    bot_id: fallbackId,
+    source: config.default_bot_id ? "configured_default" : "runtime_default",
+    reachable: fallbackMembership,
+  }
 }
 
 function boundedString(value, maxLength = DISCOVERY_LIMITS.patternLength) {
@@ -306,6 +381,10 @@ export function classifyOrdinaryCommand(command) {
     return { allowed: false, category: "administration", reason: "普通用户不能执行设置或开关命令", matches }
   }
   if (PANEL_UPDATE_PATTERN.test(text)) return { allowed: true, category: "panel_update", reason: "允许更新自己的角色面板", matches }
+  if (MUSIC_PATTERN.test(text)) return { allowed: true, category: "music", reason: "允许点歌和音乐查询", matches }
+  if (SEARCH_PATTERN.test(text)) return { allowed: true, category: "search", reason: "允许安全搜索和百科查询", matches }
+  if (MEDIA_QUERY_PATTERN.test(text)) return { allowed: true, category: "media", reason: "允许安全图片和媒体查询", matches }
+  if (ENTERTAINMENT_PATTERN.test(text)) return { allowed: true, category: "entertainment", reason: "允许安全娱乐查询", matches }
   for (const [category, pattern] of QUERY_CATEGORIES) {
     if (pattern.test(text)) return { allowed: true, category, reason: "允许基础游戏查询", matches }
   }
@@ -324,6 +403,10 @@ function discoveredRule(rawRule) {
   else if (ADMIN_PATTERN.test(pattern) || SETTING_PATTERN.test(pattern)) ordinaryCandidate = "administration"
   else if (UID_PATTERN.test(pattern)) ordinaryCandidate = "uid_self_service"
   else if (PANEL_UPDATE_PATTERN.test(pattern)) ordinaryCandidate = "panel_update"
+  else if (MUSIC_PATTERN.test(pattern)) ordinaryCandidate = "music"
+  else if (SEARCH_PATTERN.test(pattern)) ordinaryCandidate = "search"
+  else if (MEDIA_QUERY_PATTERN.test(pattern)) ordinaryCandidate = "media"
+  else if (ENTERTAINMENT_PATTERN.test(pattern)) ordinaryCandidate = "entertainment"
   else {
     const query = QUERY_CATEGORIES.find(([, candidatePattern]) => candidatePattern.test(pattern))
     if (query) ordinaryCandidate = query[0]
@@ -360,6 +443,69 @@ export function discoverPlugins(config = DEFAULT_CONFIG) {
       rules,
     }
   }).filter(entry => entry.key || entry.name || entry.rules.length)
+}
+
+function safeAgentPattern(rule) {
+  return boundedString(rule?.pattern, DISCOVERY_LIMITS.agentPatternLength).replace(/[\r\n\t]+/g, " ").trim()
+}
+
+function matchingMusicTemplates(patterns) {
+  const candidates = [
+    ["#点歌 {keyword}", "#点歌 测试歌曲"],
+    ["点歌 {keyword}", "点歌 测试歌曲"],
+    ["#QQ点歌 {keyword}", "#QQ点歌 测试歌曲"],
+    ["#网易云点歌 {keyword}", "#网易云点歌 测试歌曲"],
+    ["#音乐 {keyword}", "#音乐 测试歌曲"],
+  ]
+  return candidates
+    .filter(([, sample]) => patterns.some(rule => {
+      try {
+        return new RegExp(rule.pattern, rule.flags || "").test(sample)
+      } catch {
+        return false
+      }
+    }))
+    .map(([template]) => template)
+}
+
+export function agentCapabilities(config = DEFAULT_CONFIG) {
+  const plugins = discoverPlugins(config)
+  const safeRules = plugins.flatMap(plugin => plugin.rules
+    .filter(rule => !PRIVILEGED_PERMISSIONS.has(String(rule.permission || "").toLowerCase()))
+    .filter(rule => !CREDENTIAL_PATTERN.test(rule.pattern) && !ADMIN_PATTERN.test(rule.pattern))
+    .map(rule => ({ ...rule, plugin: plugin.name || plugin.key })))
+  const capabilities = []
+  for (const definition of AGENT_CATEGORY_DEFINITIONS) {
+    const rules = safeRules.filter(rule => definition.pattern.test(rule.pattern))
+    if (!rules.length) continue
+    const patterns = rules
+      .map(rule => ({ pattern: safeAgentPattern(rule), flags: boundedString(rule.flags, 16), plugin: boundedString(rule.plugin, 80) }))
+      .filter(rule => rule.pattern)
+      .slice(0, DISCOVERY_LIMITS.agentPatterns)
+    capabilities.push({
+      id: definition.id,
+      tool_name: definition.tool_name,
+      label: definition.label,
+      ordinary_allowed: definition.ordinary_allowed,
+      patterns,
+      invocation_templates: definition.id === "music" ? matchingMusicTemplates(patterns) : [],
+    })
+  }
+  if (safeRules.length) {
+    capabilities.push({
+      id: "plugins",
+      tool_name: "yunzai_plugins",
+      label: "Yunzai 通用插件",
+      ordinary_allowed: "runtime_classification",
+      patterns: safeRules.slice(0, DISCOVERY_LIMITS.agentPatterns).map(rule => ({
+        pattern: safeAgentPattern(rule),
+        flags: boundedString(rule.flags, 16),
+        plugin: boundedString(rule.plugin, 80),
+      })),
+      invocation_templates: [],
+    })
+  }
+  return capabilities.slice(0, AGENT_CATEGORY_DEFINITIONS.length + 1)
 }
 
 export async function loadConfig() {
@@ -496,9 +642,9 @@ export function normalizeMessage(message) {
     .filter(Boolean)
 }
 
-export function buildEvent(payload, config) {
+export function buildEvent(payload, config, botResolution = resolveBotForTarget(payload?.target, config)) {
   const target = payload.target && typeof payload.target === "object" ? payload.target : {}
-  const botId = defaultBotId(config)
+  const botId = String(botResolution?.bot_id || "").trim()
   const groupId = String(target.group_id || "").trim()
   const userId = String(target.user_id || "").trim()
 
@@ -604,10 +750,10 @@ function denyPermission(result, role, reason, category = "denied") {
   return result
 }
 
-export function authorizeCommand(payload, config, configSource = Config) {
+export function authorizeCommand(payload, config, configSource = Config, botResolution = resolveBotForTarget(payload?.target, config)) {
   const target = payload?.target && typeof payload.target === "object" ? payload.target : {}
   const userId = String(target.user_id || "").trim()
-  const botId = defaultBotId(config)
+  const botId = String(botResolution?.bot_id || defaultBotId(config)).trim()
   if (!userId) {
     return { allowed: false, role: "ordinary", category: "missing_identity", reason: "缺少真实会话 user_id" }
   }
@@ -688,7 +834,9 @@ export async function executeGameQuery(payload, config) {
 
 async function runCommand(payload, config, result, started) {
   try {
-    const access = authorizeCommand(payload, config)
+    const botResolution = resolveBotForTarget(payload?.target, config)
+    result.bot_resolution = botResolution
+    const access = authorizeCommand(payload, config, Config, botResolution)
     result.role = access.role
     result.category = access.category
     if (!access.allowed) {
@@ -697,7 +845,7 @@ async function runCommand(payload, config, result, started) {
       log("warn", `拒绝 ${access.role} 用户 ${payload?.target?.user_id || "unknown"} 执行 ${payload.command}: ${access.reason}`)
       return result
     }
-    const event = buildEvent(payload, config)
+    const event = buildEvent(payload, config, botResolution)
     result.effective_target = {
       bot_id: event.self_id,
       message_type: event.message_type,
@@ -713,7 +861,31 @@ async function runCommand(payload, config, result, started) {
     // Preserve v1.2.1 semantics: plugin handlers await the real Yunzai reply
     // directly. Do not defer nativeReply into a tracking Promise or wait for it
     // a second time after PluginsLoader.deal().
-    event.reply = async (message = "", quote = false, data = {}) => {
+    const deliveryOutcome = value => {
+      if (value === true) return { status: "sent", error: "" }
+      if (value === false) return { status: "failed", error: "native_reply_returned_false" }
+      if (value === undefined || value === null || value === "") return { status: "unconfirmed", error: "native_reply_unconfirmed" }
+      if (typeof value === "string" || typeof value === "number") return { status: "sent", error: "" }
+      if (Array.isArray(value)) {
+        if (!value.length) return { status: "unconfirmed", error: "native_reply_unconfirmed" }
+        const outcomes = value.map(deliveryOutcome)
+        if (outcomes.some(item => item.status === "failed")) return { status: "failed", error: outcomes.find(item => item.error)?.error || "native_reply_failed" }
+        if (outcomes.every(item => item.status === "sent")) return { status: "sent", error: "" }
+        return { status: "unconfirmed", error: "native_reply_unconfirmed" }
+      }
+      if (typeof value === "object") {
+        const status = String(value.status || "").toLowerCase()
+        const retcode = value.retcode
+        if (value.error || value.success === false || status === "failed" || status === "error" || (retcode !== undefined && ![0, 1, "0", "1"].includes(retcode))) {
+          return { status: "failed", error: String(value.error?.message || value.error || value.message || value.msg || "native_reply_failed") }
+        }
+        if (value.message_id || value.id || value.success === true || status === "ok" || status === "sent" || [0, 1, "0", "1"].includes(retcode)) {
+          return { status: "sent", error: "" }
+        }
+      }
+      return { status: "unconfirmed", error: "native_reply_unconfirmed" }
+    }
+    const deliver = async (message, invokeNative) => {
       const capturedMessages = normalizeMessage(message)
       result.messages.push(...capturedMessages)
       const record = { capturedMessages, status: "pending", error: "" }
@@ -722,15 +894,21 @@ async function runCommand(payload, config, result, started) {
         record.status = "capture_only"
         return { message_id: `astrbot-capture-${crypto.randomUUID()}` }
       }
-      if (typeof nativeReply !== "function") {
+      if (botResolution.reachable === false) {
+        record.status = "failed"
+        record.error = "native_target_unreachable"
+        return false
+      }
+      if (typeof invokeNative !== "function") {
         record.status = "failed"
         record.error = "native_reply_unavailable"
         return false
       }
       try {
-        const value = await nativeReply(message, quote, data)
-        record.status = value === false ? "failed" : "sent"
-        if (value === false) record.error = "native_reply_returned_false"
+        const value = await invokeNative()
+        const outcome = deliveryOutcome(value)
+        record.status = outcome.status
+        record.error = outcome.error
         return value
       } catch (error) {
         record.status = "failed"
@@ -738,7 +916,55 @@ async function runCommand(payload, config, result, started) {
         return false
       }
     }
-    const handlerResult = await PluginsLoader.deal(event)
+    let nativeReplyDepth = 0
+    event.reply = async (message = "", quote = false, data = {}) => deliver(
+      message,
+      typeof nativeReply === "function"
+        ? async () => {
+            nativeReplyDepth += 1
+            try {
+              return await nativeReply(message, quote, data)
+            } finally {
+              nativeReplyDepth -= 1
+            }
+          }
+        : null,
+    )
+
+    const directTarget = event.group_id ? event.group : event.friend
+    let directSendMethod = null
+    let directSendWrapper = null
+    if (directTarget && typeof directTarget.sendMsg === "function") {
+      directSendMethod = directTarget.sendMsg
+      const directSend = directSendMethod.bind(directTarget)
+      directSendWrapper = async (...args) => {
+        // Some Yunzai event.reply implementations delegate to target.sendMsg.
+        // That nested call belongs to the event.reply delivery record already.
+        if (nativeReplyDepth > 0) return directSend(...args)
+        return deliver(args[0], () => directSend(...args))
+      }
+      try {
+        directTarget.sendMsg = directSendWrapper
+        if (directTarget.sendMsg !== directSendWrapper) directSendWrapper = null
+      } catch (error) {
+        directSendWrapper = null
+        log("warn", `无法跟踪目标 sendMsg，将继续使用 event.reply 捕获: ${error?.message || error}`)
+      }
+    }
+    let handlerResult
+    try {
+      handlerResult = await PluginsLoader.deal(event)
+    } finally {
+      // pickGroup/pickFriend may return a shared adapter object. Never leave a
+      // bridge wrapper installed after this command or later sends will stack.
+      if (directSendWrapper && directTarget?.sendMsg === directSendWrapper) {
+        try {
+          directTarget.sendMsg = directSendMethod
+        } catch (error) {
+          log("warn", `恢复目标 sendMsg 失败: ${error?.message || error}`)
+        }
+      }
+    }
     for (const record of deliveryRecords) {
       for (const message of record.capturedMessages) {
         message.native_delivery = record.status
@@ -747,6 +973,7 @@ async function runCommand(payload, config, result, started) {
     }
     const succeeded = deliveryRecords.filter(record => record.status === "sent").length
     const failed = deliveryRecords.filter(record => record.status === "failed").length
+    const unconfirmed = deliveryRecords.filter(record => record.status === "unconfirmed").length
     const pending = deliveryRecords.filter(record => record.status === "pending").length
     result.reply_delivery = {
       requested: Boolean(payload.send_reply),
@@ -754,18 +981,21 @@ async function runCommand(payload, config, result, started) {
         ? "capture_only"
         : !deliveryRecords.length
           ? "no_reply"
-          : failed === 0
+          : failed === 0 && unconfirmed === 0
             ? pending > 0 ? "pending" : "sent"
             : succeeded > 0
               ? "partial"
-              : "failed",
+              : failed > 0 ? "failed" : "unconfirmed",
       attempts: payload.send_reply ? deliveryRecords.length : 0,
       succeeded,
       failed,
+      unconfirmed,
       pending,
       errors: [...new Set(deliveryRecords.map(record => record.error).filter(Boolean))],
     }
-    if (failed) result.warning = "命令已执行，但部分或全部 Yunzai 回复发送失败"
+    if (failed || unconfirmed) result.warning = failed
+      ? "命令已执行，但部分或全部 Yunzai 回复发送失败"
+      : "命令已执行，但 Yunzai 原生发送没有返回送达凭证"
     if (handlerResult !== undefined && handlerResult !== true) {
       result.handler_result = safeJson(handlerResult)
     }
@@ -788,6 +1018,7 @@ export function capabilities(config) {
     commands: "role_based",
     game_queries: listGameQueries(config),
     discovered_plugins: discoverPlugins(config),
+    agent_capabilities: agentCapabilities(config),
     discovery: {
       enabled: config.discover_plugins !== false,
       execution_policy: "role_based",
@@ -800,7 +1031,7 @@ export function capabilities(config) {
       token_holder_must_be_trusted: true,
       master_access: "full",
       master_risk: "prompt_injection_can_trigger_configuration_update_install_or_restart",
-      ordinary_access: ["uid_self_service", "panel_update", "panel", "strategy", "catalog", "note", "combat", "records", "help"],
+      ordinary_access: ["uid_self_service", "panel_update", "panel", "strategy", "catalog", "note", "combat", "records", "help", "music", "search", "media", "entertainment"],
       unknown_command: "deny",
       rate_limit: "disabled",
     },
